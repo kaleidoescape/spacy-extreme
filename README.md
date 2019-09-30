@@ -1,5 +1,5 @@
 # spacy-extreme
-An example of how to use spaCy for extremely large files without running into memory issues
+An example of how to use spaCy for extremely large files without running into memory issues. This has been adapted by me (kaleidoescape) from the original code by BramVanroy to work with parallel input files (such as in the case of machine translation).
 
 ## Memory issues with spaCy
 SpaCy is a popular, powerful NLP tool that can process a text and get almost any information out of it that you could need. 
