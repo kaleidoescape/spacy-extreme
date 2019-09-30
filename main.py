@@ -1,15 +1,9 @@
 import datetime
 import logging
-<<<<<<< HEAD
 import os
 import subprocess
 from math import inf
 from multiprocessing import Manager, Pool, Process
-=======
-from math import inf
-from multiprocessing import Manager, Pool, Process
-from os import cpu_count
->>>>>>> 1f5191d138e6e6d0b95ac9e6d678dc50fc1b1052
 from pathlib import Path
 
 import psutil
@@ -17,10 +11,6 @@ import spacy
 
 from Chunker import Chunker
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 1f5191d138e6e6d0b95ac9e6d678dc50fc1b1052
 logging.basicConfig(datefmt='%d-%b %H:%M:%S',
                     format='%(asctime)s - [%(levelname)s]: %(message)s',
                     level=logging.INFO,
@@ -29,12 +19,8 @@ logging.basicConfig(datefmt='%d-%b %H:%M:%S',
                         logging.StreamHandler()
                     ])
 
-<<<<<<< HEAD
 
 DEFAULT_WORKERS = (os.cpu_count() - 2) or 1
-=======
-DEFAULT_WORKERS = (cpu_count() - 2) or 1
->>>>>>> 1f5191d138e6e6d0b95ac9e6d678dc50fc1b1052
 
 """ Processes a single, huge text file with spaCy, without running into memory issues 
     IF the right parameters are chosen.
