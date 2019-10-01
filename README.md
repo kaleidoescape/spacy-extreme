@@ -47,48 +47,37 @@ partials to the results queue separately and let the writer process them when av
 ## Usage
 
 ```bash
-usage: main.py [-h] [-b BATCH_SIZE] [--max-length MAX_LENGTH]
-               [-m MAX_TASKS_PER_CHILD] [--min-length MIN_LENGTH]
-               [-n N_WORKERS] [--spacy-model SPACY_MODEL]
-               fin
+usage: main.py [-h] [-b BATCH_SIZE] [-m MAX_TASKS_PER_CHILD] [-n N_WORKERS]
+               [--src-spacy SRC_SPACY] [--tgt-spacy TGT_SPACY]
+               [--outdir OUTDIR] [--logdir LOGDIR]
+               srcfp tgtfp
 
 Parse HUGE text files with spaCy in parallel without running into memory
 issues.
 
 positional arguments:
-  fin                   input file.
+  srcfp                 source language input file.
+  tgtfp                 target language input file.
 
 optional arguments:
   -h, --help            show this help message and exit
   -b BATCH_SIZE, --batch-size BATCH_SIZE
-                        batch size (in bytes). (default: 1048576)
-  --max-length MAX_LENGTH
-                        sentences with more than 'max_length' will not be
-                        included in the output. (default: None)
+                        batch size (in lines). (default: 20000)
   -m MAX_TASKS_PER_CHILD, --max-tasks-per-child MAX_TASKS_PER_CHILD
                         max number of batches that a child process can process
                         before it is killed and replaced. Use this when
                         running into memory issues. (default: 5)
-  --min-length MIN_LENGTH
-                        sentences with less than 'min_length' will not be
-                        included in the output. (default: None)
   -n N_WORKERS, --n-workers N_WORKERS
                         number of workers to use (default depends on your
-                        current system).
-  --spacy-model SPACY_MODEL
-                        spaCy model to use (must be installed). (default:
+                        current system). (default: 4)
+  --src-spacy SRC_SPACY
+                        spaCy model to use for source sentences. (default: de)
+  --tgt-spacy TGT_SPACY
+                        spaCy model to use for target sentences. (default:
                         en_core_web_sm)
+  --outdir OUTDIR       directory to put outputs (if different from where
+                        original files are). (default: None)
+  --logdir LOGDIR       directory to put logs (default will be current working
+                        dir) (default: None)
+
 ```
-
-## Best settings
-It is hard to tell what the best settings are for a given combination of hardware and the data.
-On a machine with 384GB of memory and 48 cores, I ran the script with the following settings.
-Memory consumption never exceeded 78%.
-
-- `-n 24`: using 24 cores. 
-- `--spacy-model en_core_web_lg`: the largest Englsih spaCy model
-- `-b 50000000`: a batch size of 50 MB (50,000,000 bytes). With my data, one such batch was roughly equivalent to 400k sentences
-- `-m 5`: replace a process after having processed 5 batches. In total each process processes 2M sentences before being replaced
-
-If you do not have a lot of memory available, you will want to set `--max-tasks-per-child` (`-m`) to 1 so that an active process is replaced after each batch.
-In such case, ensure that your batch size is not too small (e.g. not less than 100kB) to maximize efficiency. 
