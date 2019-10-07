@@ -1,10 +1,7 @@
 import datetime
 import logging
 import os
-import subprocess
-from math import inf
 from multiprocessing import Manager, Pool, Process
-from pathlib import Path
 
 import psutil
 import spacy
@@ -53,8 +50,8 @@ DEFAULT_WORKERS = (os.cpu_count() - 2) or 1
 
 
 class Parallel(object):
-    def __init__(self, logdir=None):
-        self.logdir = logdir
+    def __init__(self, encoding='utf-8'):
+        self.encoding=encoding
 
         self.results_q = None
         self.work_q = None
@@ -63,7 +60,7 @@ class Parallel(object):
     def loader(self):
         pass
 
-    def get_sents(self, batch, src_or_tgt='src'):
+    def get_sents(self, batch, language_direction=0):
         result = [s for s in batch]
         n_sentences = len(batch)
         n_tokens = 0
@@ -71,24 +68,24 @@ class Parallel(object):
             n_tokens += len(sent)
         return result, n_sentences, n_tokens
 
-    def get_output_paths(self, srcfp, tgtfp, outdir, suffix='.out'):
-        if outdir is None:
-            srcfpout = srcfp + suffix
-            tgtfpout = tgtfp + suffix
-        else:
-            os.makedirs(outdir, exist_ok=True)
-            srcfpout = os.path.join(
-                outdir, os.path.basename(srcfp) + suffix)
-            tgtfpout = os.path.join(
-                outdir, os.path.basename(tgtfp) + suffix)
-        return srcfpout, tgtfpout
+    def get_output_paths(self, fps, outdir, suffix='.out'):
+        new_fps = []
+        for fp in fps:
+            if outdir is None:
+                fpout = fp + suffix
+            else:
+                os.makedirs(outdir, exist_ok=True)
+                fpout = os.path.join(
+                    outdir, os.path.basename(fp) + suffix)
+            new_fps.append(fpout)
+        return new_fps 
 
-    def process(self, srcfp, tgtfp, n_workers, max_tasks_per_child, outdir=None):
-        logging.info(f"Started processing {srcfp} + {tgtfp} with {n_workers} workers.")
+    def process(self, fps, n_workers, max_tasks_per_child, outdir=None):
+        logging.info(f"Started processing {fps} with {n_workers} workers.")
         if max_tasks_per_child:
             logging.info(f"Max. {max_tasks_per_child} tasks per child process before replacement.")
 
-        srcfpout, tgtfpout = self.get_output_paths(srcfp, tgtfp, outdir)
+        fpouts = tuple(self.get_output_paths(fps, outdir))
 
         start_time = datetime.datetime.now()
 
@@ -103,7 +100,7 @@ class Parallel(object):
             reader_proc.start() #the reader starts filling up the work_q
             writer_proc = Process(
                 target=self.writer, 
-                args=(srcfpout, tgtfpout)
+                args=(fpouts,)
             )
             writer_proc.start()
 
@@ -122,12 +119,10 @@ class Parallel(object):
                     if work == 'done':
                         break
 
-                    src_chunk_start, src_chunk_size, tgt_chunk_start, tgt_chunk_size = work
                     # Apply work to workers
                     job = pool.apply_async(
                         self.process_batch, 
-                        (src_chunk_start, src_chunk_size, 
-                         tgt_chunk_start, tgt_chunk_size)
+                        (work,)
                     )
                     worker_jobs.append(job)
                 logging.info('Done chunking...')
@@ -164,26 +159,19 @@ class Parallel(object):
         logging.info(f"Done processing in {running_time} ({src_sents_perf:,.0f} sentences/s)."
                      f" Processed {total_n_src_sents:,.0f} source sentences and {total_n_src_tokens:,.0f} source tokens.")
 
-    def process_batch(self, 
-                      src_chunk_start, 
-                      src_chunk_size, 
-                      tgt_chunk_start, 
-                      tgt_chunk_size):
-        src_batch, tgt_batch = self.chunker.get_batch(src_chunk_start,
-                                                      src_chunk_size, 
-                                                      tgt_chunk_start, 
-                                                      tgt_chunk_size)
+    def process_batch(self, chunk_tuples):
+        chunks = self.chunker.get_batch(chunk_tuples)
 
-        src_sents, n_src_sents, n_src_tokens = self.get_sents(
-            src_batch, 'src')
-        tgt_sents, n_tgt_sents, n_tgt_tokens = self.get_sents(
-            tgt_batch, 'tgt')
+        outs = []
+        for i, batch in enumerate(chunks):
+            sents, n_sents, n_tokens = self.get_sents(batch, i)
+            outs.append(sents)
 
         # Pass results to queue, so they can be written to file by the writer
-        self.results_q.put((src_sents, tgt_sents))
+        self.results_q.put(zip(*outs))
 
         # Return the number of sentences and number of tokens, just to keep track
-        return n_src_sents, n_src_tokens 
+        return n_sents, n_tokens 
 
     @staticmethod
     def _format_time(delta):
@@ -193,20 +181,20 @@ class Parallel(object):
         return f"{hours:02,.0f}:{minutes:02.0f}:{seconds:02.0f}"
 
     # I/O methods
-    def writer(self, srcfp, tgtfp):
-        with open(srcfp, 'w', encoding='utf-8') as srcout, \
-             open(tgtfp, 'w', encoding='utf-8') as tgtout:
-
+    def writer(self, fps):
+        fhs = [open(fp, 'w', encoding=self.encoding) for fp in fps]
+        try:
             while True:
-                m = self.results_q.get()
-                if m == 'done':
+                results = self.results_q.get()
+                if results =='done':
                     break
 
-                src_sents, tgt_sents = m
-                srcout.write('\n'.join(src_sents) + '\n')
-                srcout.flush()
-                tgtout.write('\n'.join(tgt_sents) + '\n')
-                tgtout.flush()
+                for result in results:
+                    for i, item in enumerate(result):
+                        fhs[i].write('\n'.join(item) + '\n')
+                        fhs[i].flush()
+        finally:
+            [fh.close() for fh in fhs]
 
     def reader(self):
         for chunk_tuple in self.chunker.chunkify():

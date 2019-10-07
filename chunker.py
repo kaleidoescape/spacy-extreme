@@ -1,26 +1,27 @@
 import logging
-from os import stat
-from pathlib import Path
-
-from typing import Generator, Union
+from typing import Generator
 
 logger = logging.getLogger(__name__)
 
 
 class Chunker:
-    """ Chunker that can chunk a file into byte ranges which can then be retrieved as a list of encoded lines. """
-    def __init__(self, srcfp, tgtfp, batch_size: int = 5000, encoding: str = 'utf-8'):
+    """
+    Chunker that can chunk a files into byte ranges which 
+    can then be retrieved as a list of encoded lines.
+    """
+    def __init__(self, fps, batch_size: int=5000, encoding: str='utf-8'):
         """
-        :param fin: filename to chunk
-        :param batch_size: approximate size of each chunk (in number of lines)
-        :param encoding: encoding of the input file. Will be used when retrieving the encoded batch of lines
+        Args:
+            fps: parallel filenames to chunk 
+            batch_size: approximate size of each chunk (in number of lines)
+            encoding: encoding of the input files. Will be used when 
+                      retrieving the encoded batch of lines
         """
         self.batch_size = int(batch_size)
         self.encoding = encoding
-        self.srcfp = srcfp
-        self.tgtfp = tgtfp
+        self.fps = fps
 
-        logger.info(f"Chunking with a batch size of {batch_size:,} lines.")
+        logger.info(f"Chunking {len(fps)} parallel files with a batch size of {batch_size:,} lines.")
 
     def file_len(self, fname):
         with open(fname) as f:
@@ -29,60 +30,66 @@ class Chunker:
         return i + 1
 
     def chunkify(self) -> Generator:
-        """ Chunks a file into sequential byte ranges of approximately the same size as defined in the constructor.
-        The size of each chunk is not exactly the same because if a chunk ends on an incomplete line, the remainder
-        of the line will also be read and included in the chunk.
-
-        :returns a generator that yields tuples of two integers: the starting byte of the chunk and its size
         """
-        length = self.file_len(self.srcfp)
+        Chunks a files into sequential byte ranges that cover the number of
+        lines defined in the constructor.
 
-        with open(self.srcfp, 'r', encoding='utf-8') as srcin, \
-             open(self.tgtfp, 'r', encoding='utf-8') as tgtin:
+        Returns:
+            a generator that yields iterables of tuples; each tuple
+                is the (chunk_start, chunk_size) for each file, where
+                chunk_start is the starting byte of the chunk; the 
+                iterable is these tuples for each of the parallel files
+        """
+        length = self.file_len(self.fps[0])
+        fhs = [open(fp, 'r') for fp in self.fps]
+        
+        try:
             ln = 0
-            prev_s_pos = 0
-            prev_t_pos = 0
+            positions = [0]*len(fhs)
+            prev_positions = [0]*len(fhs)
+            chunk_sizes = [0]*len(fhs)
             while ln < length:
-                for _ in range(self.batch_size):
-                    srcin.readline()
-                    s_pos = srcin.tell()
-                    tgtin.readline()
-                    t_pos = tgtin.tell()
-                s_chunk_size = s_pos - prev_s_pos
-                t_chunk_size = t_pos - prev_t_pos
-                yield (prev_s_pos, s_chunk_size, prev_t_pos, t_chunk_size)
+                for i, fh in enumerate(fhs):
+                    for _ in range(self.batch_size):
+                        fh.readline()
+                        pos = fh.tell()
+                    positions[i] = pos
+                    chunk_sizes[i] = pos - prev_positions[i]
+                yield zip(prev_positions, chunk_sizes)
                 ln += self.batch_size 
-                prev_s_pos = s_pos
-                prev_t_pos = t_pos
+                prev_positions = positions
+
+        finally:
+            [fh.close() for fh in fhs]
                 
-    def get_batch(self, 
-                  src_chunk_start: int, 
-                  src_chunk_size: int, 
-                  tgt_chunk_start: int,
-                  tgt_chunk_size: int,
-                  rm_newlines: bool = True) -> Generator:
-        """ Retrieves a chunk, given a starting byte and chunk size, as a batch of encoded lines through a generator.
-
-        :param chunk_start: the starting byte position of the requested chunk
-        :param chunk_size: the size of the requested chunk
-        :param rm_newlines: whether to remove the newlines at the end of each line (rstrip)
-        :returns a generator that yields each encoded line in the batch
+    def get_batch(self, chunk_positions, rm_newlines: bool=True) -> list:
         """
-        with open(self.srcfp, 'rb') as srcin, \
-             open(self.tgtfp, 'rb') as tgtin:
-            srcin.seek(src_chunk_start)
-            src_chunk = srcin.read(src_chunk_size)
-            tgtin.seek(tgt_chunk_start)
-            tgt_chunk = tgtin.read(tgt_chunk_size) 
+        Retrieves a chunk, given a starting byte and chunk size, 
+        as a batch of encoded lines. 
 
-        if rm_newlines:
-            src = (s.decode(self.encoding).rstrip() 
-                   for s in src_chunk.split(b'\n') if s)
-            tgt = (s.decode(self.encoding).rstrip() 
-                   for s in tgt_chunk.split(b'\n') if s)
-        else:
-            src = (s.decode(self.encoding) 
-                   for s in src_chunk.split(b'\n') if s)
-            tgt = (s.decode(self.encoding) 
-                   for s in tgt_chunk.split(b'\n') if s)
-        return src, tgt
+        Args:
+            chunk_starts: the starting byte position of the chunk in each file
+            chunk_sizes: the size in bytes of the chunk in each file
+            rm_newlines: whether to remove the newlines at the end (rstrip)
+
+        Returns:    
+            the encoded parallel lines in the batch
+        """
+        fhs = [open(fp, 'rb') for fp in self.fps]
+        chunked = []
+        try:
+            for i, chunk_position in enumerate(chunk_positions):
+                chunk_start, chunk_size = chunk_position
+                fhs[i].seek(chunk_start)
+                data = fhs[i].read(chunk_size)
+                if rm_newlines:
+                    content = (s.decode(self.encoding).rstrip()
+                               for s in data.split(b'\n') if s)
+                else:
+                    content = (s.decode(self.encoding) 
+                               for s in data.split(b'\n') if s)
+                chunked.append(content)
+        finally:
+            [fh.close() for fh in fhs]
+        return chunked
+
