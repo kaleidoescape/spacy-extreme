@@ -163,6 +163,7 @@ class Parallel(object):
         chunks = self.chunker.get_batch(chunk_tuples)
 
         outs = []
+        n_sents, n_tokens = 0, 0
         for i, batch in enumerate(chunks):
             sents, n_sents, n_tokens = self.get_sents(batch, i)
             outs.append(sents)
