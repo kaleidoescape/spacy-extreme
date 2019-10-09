@@ -52,12 +52,12 @@ class Chunker:
                 for i, fh in enumerate(fhs):
                     for _ in range(self.batch_size):
                         fh.readline()
-                        pos = fh.tell()
-                    positions[i] = pos
-                    chunk_sizes[i] = pos - prev_positions[i]
+                        positions[i] = fh.tell()
+                    chunk_sizes[i] = positions[i] - prev_positions[i]
+
                 yield zip(prev_positions, chunk_sizes)
                 ln += self.batch_size 
-                prev_positions = positions
+                prev_positions = positions.copy()
 
         finally:
             [fh.close() for fh in fhs]
