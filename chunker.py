@@ -1,15 +1,20 @@
+import os
 import logging
 from typing import Generator
 
-logger = logging.getLogger(__name__)
-
+from utils import setup_logger
 
 class Chunker:
     """
     Chunker that can chunk a files into byte ranges which 
     can then be retrieved as a list of encoded lines.
     """
-    def __init__(self, fps, batch_size: int=5000, encoding: str='utf-8'):
+    def __init__(self, 
+                 fps, 
+                 batch_size: int=5000, 
+                 encoding: str='utf-8', 
+                 linesep: str=os.linesep, 
+                 logdir: str=''):
         """
         Args:
             fps: parallel filenames to chunk 
@@ -17,11 +22,17 @@ class Chunker:
             encoding: encoding of the input files. Will be used when 
                       retrieving the encoded batch of lines
         """
+        self.logdir = logdir
+        if not self.logdir:
+            self.logdir = os.getcwd()
+        self.logger = setup_logger(self.logdir, name='chunker')
+
         self.batch_size = int(batch_size)
         self.encoding = encoding
+        self.linesep = linesep
         self.fps = fps
 
-        logger.info(f"Chunking {len(fps)} parallel files with a batch size of {batch_size:,} lines.")
+        self.logger.info(f"Chunking {len(fps)} parallel files with a batch size of {batch_size:,} lines.")
 
     def file_len(self, fname):
         with open(fname) as f:
@@ -41,7 +52,10 @@ class Chunker:
                 iterable is these tuples for each of the parallel files
         """
         length = self.file_len(self.fps[0])
-        fhs = [open(fp, 'r') for fp in self.fps]
+        fhs = [open(fp, 'r', 
+                    newline=self.linesep, 
+                    encoding=self.encoding) \
+               for fp in self.fps]
         
         try:
             ln = 0

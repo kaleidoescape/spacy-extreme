@@ -1,12 +1,14 @@
 import datetime
-import logging
+import logging 
 import os
+import sys
 from multiprocessing import Manager, Pool, Process
 
 import psutil
 import spacy
 
 from chunker import Chunker
+from utils import setup_logger
 
 
 """ Processes a single, huge text file without running into memory issues 
@@ -36,22 +38,18 @@ from chunker import Chunker
     That's where the actual values from spaCy are retrieved and processed.
 """
 
-
-logging.basicConfig(datefmt='%d-%b %H:%M:%S',
-                    format='%(asctime)s - [%(levelname)s]: %(message)s',
-                    level=logging.INFO,
-                    handlers=[
-                        logging.FileHandler('progress.log'),
-                        logging.StreamHandler()
-                    ])
-
-
 DEFAULT_WORKERS = (os.cpu_count() - 2) or 1
 
 
 class Parallel(object):
-    def __init__(self, encoding='utf-8'):
-        self.encoding=encoding
+    def __init__(self, logdir=None, encoding='utf-8', linesep=os.linesep):
+        self.logdir = logdir
+        if not self.logdir:
+            self.logdir = os.getcwd()
+        self.logger = setup_logger(self.logdir, name='parallel')
+
+        self.encoding = encoding
+        self.linesep = linesep
 
         self.results_q = None
         self.work_q = None
@@ -81,9 +79,9 @@ class Parallel(object):
         return new_fps 
 
     def process(self, fps, n_workers, max_tasks_per_child, outdir=None):
-        logging.info(f"Started processing {fps} with {n_workers} workers.")
+        self.logger.info(f"Started processing {fps} with {n_workers} workers.")
         if max_tasks_per_child:
-            logging.info(f"Max. {max_tasks_per_child} tasks per child process before replacement.")
+            self.logger.info(f"Max. {max_tasks_per_child} tasks per child process before replacement.")
 
         fpouts = tuple(self.get_output_paths(fps, outdir))
 
@@ -112,7 +110,7 @@ class Parallel(object):
                     self.loader()
 
                 worker_jobs = []
-                logging.info('Chunking...')
+                self.logger.info('Chunking...')
                 while True:
                     # Get work from the working queue
                     work = self.work_q.get()
@@ -125,7 +123,7 @@ class Parallel(object):
                         (work,)
                     )
                     worker_jobs.append(job)
-                logging.info('Done chunking...')
+                self.logger.info('Done chunking...')
 
                 # After the queue is 'done', the reader can close
                 reader_proc.join()
@@ -143,7 +141,7 @@ class Parallel(object):
                         time_since_start = (datetime.datetime.now() - start_time)
                         sents_perf = total_n_src_sents // time_since_start.total_seconds()
                         time_since_start = self._format_time(time_since_start)
-                        logging.info(f"Processed batch #{job_idx:,}: {n_src_sents:,} source sents ({sents_perf:,.0f} sents/s)."
+                        self.logger.info(f"Processed batch #{job_idx:,}: {n_src_sents:,} source sents ({sents_perf:,.0f} sents/s)."
                                      f" Mem. use: {psutil.virtual_memory().percent}%. Running for {time_since_start}")
 
                 # Notify the writer that we're done
@@ -156,7 +154,7 @@ class Parallel(object):
         running_time = (datetime.datetime.now() - start_time)
         src_sents_perf = total_n_src_sents // running_time.total_seconds()
         running_time = self._format_time(running_time)
-        logging.info(f"Done processing in {running_time} ({src_sents_perf:,.0f} sentences/s)."
+        self.logger.info(f"Done processing in {running_time} ({src_sents_perf:,.0f} sentences/s)."
                      f" Processed {total_n_src_sents:,.0f} source sentences and {total_n_src_tokens:,.0f} source tokens.")
 
     def process_batch(self, chunk_tuples):
@@ -192,7 +190,7 @@ class Parallel(object):
 
                 for result in results:
                     for i, item in enumerate(result):
-                        fhs[i].write('\n'.join(item) + '\n')
+                        fhs[i].write(item + self.linesep)
                         fhs[i].flush()
         finally:
             [fh.close() for fh in fhs]

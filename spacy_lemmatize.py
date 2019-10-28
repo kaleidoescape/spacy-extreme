@@ -11,15 +11,7 @@ import spacy
 
 from chunker import Chunker
 from parallel import Parallel
-
-logging.basicConfig(datefmt='%d-%b %H:%M:%S',
-                    format='%(asctime)s - [%(levelname)s]: %(message)s',
-                    level=logging.INFO,
-                    handlers=[
-                        logging.FileHandler('progress.log'),
-                        logging.StreamHandler()
-                    ])
-
+from utils import setup_logger
 
 DEFAULT_WORKERS = (os.cpu_count() - 2) or 1
 
@@ -29,6 +21,11 @@ class ParallelSpacy(Parallel):
                  disable=["tokenizer", "parser", "ner", "textcat"],
                  logdir=None,
                  encoding='utf-8'):
+        self.logdir = logdir
+        if not self.logdir:
+            self.logdir = os.getcwd()
+        self.logger = setup_logger(self.logdir, name='spacy-parallel')
+
         self.disable = disable
         self.encoding = encoding
 
